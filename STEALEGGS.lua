@@ -5,6 +5,7 @@ local player = Players.LocalPlayer
 local rebirthEvent = ReplicatedStorage
 	:WaitForChild("Events")
 	:WaitForChild("Rebirth")
+local merchantEvent = ReplicatedStorage:WaitForChild("MerchantPurchase")
 
 local enabled = false
 local minimized = false
@@ -12,14 +13,17 @@ local unloaded = false
 local closeArmed = false
 local interval = 1
 
+local FULL_SIZE = UDim2.fromOffset(240, 335)
+local MINI_SIZE = UDim2.fromOffset(240, 45)
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "StealEggsGUI"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(240, 120)
-frame.Position = UDim2.new(0.5, -120, 0.5, -60)
+frame.Size = FULL_SIZE
+frame.Position = UDim2.new(0.5, -120, 0.5, -167)
 frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -65,8 +69,8 @@ close.Parent = frame
 Instance.new("UICorner", close).CornerRadius = UDim.new(0, 7)
 
 local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(1, -30, 0, 45)
-toggle.Position = UDim2.fromOffset(15, 58)
+toggle.Size = UDim2.new(1, -30, 0, 40)
+toggle.Position = UDim2.fromOffset(15, 55)
 toggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
 toggle.Text = "AUTO REBIRTH: OFF"
 toggle.TextColor3 = Color3.new(1, 1, 1)
@@ -75,6 +79,53 @@ toggle.TextSize = 15
 toggle.Parent = frame
 
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 8)
+
+local merchantFrame = Instance.new("Frame")
+merchantFrame.Size = UDim2.new(1, -30, 0, 220)
+merchantFrame.Position = UDim2.fromOffset(15, 105)
+merchantFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+merchantFrame.BorderSizePixel = 0
+merchantFrame.Parent = frame
+
+Instance.new("UICorner", merchantFrame).CornerRadius = UDim.new(0, 8)
+
+local merchantTitle = Instance.new("TextLabel")
+merchantTitle.Size = UDim2.new(1, 0, 0, 28)
+merchantTitle.BackgroundTransparency = 1
+merchantTitle.Text = "MERCHANT"
+merchantTitle.TextColor3 = Color3.new(1, 1, 1)
+merchantTitle.Font = Enum.Font.GothamBold
+merchantTitle.TextSize = 14
+merchantTitle.Parent = merchantFrame
+
+local merchantItems = {
+	"WinterEgg",
+	"HeavenEgg",
+	"HellEgg",
+	"MagmaEgg",
+	"Coin",
+	"Luck",
+	"Speed",
+	"Mega"
+}
+
+for i, itemName in ipairs(merchantItems) do
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(1, -16, 0, 21)
+	button.Position = UDim2.fromOffset(8, 28 + ((i - 1) * 23))
+	button.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+	button.Text = itemName
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Font = Enum.Font.Gotham
+	button.TextSize = 13
+	button.Parent = merchantFrame
+
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+
+	button.MouseButton1Click:Connect(function()
+		merchantEvent:FireServer(itemName)
+	end)
+end
 
 toggle.MouseButton1Click:Connect(function()
 	enabled = not enabled
@@ -87,9 +138,8 @@ end)
 minimize.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	toggle.Visible = not minimized
-	frame.Size = minimized
-		and UDim2.fromOffset(240, 45)
-		or UDim2.fromOffset(240, 120)
+	merchantFrame.Visible = not minimized
+	frame.Size = minimized and MINI_SIZE or FULL_SIZE
 	minimize.Text = minimized and "+" or "−"
 end)
 
