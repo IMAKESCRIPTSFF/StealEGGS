@@ -7,14 +7,28 @@ local rebirthEvent = ReplicatedStorage
 	:WaitForChild("Rebirth")
 local merchantEvent = ReplicatedStorage:WaitForChild("MerchantPurchase")
 
-local enabled = false
+local rebirthEnabled = false
+local merchantEnabled = false
 local minimized = false
 local unloaded = false
 local closeArmed = false
-local interval = 1
 
-local FULL_SIZE = UDim2.fromOffset(240, 335)
+local REBIRTH_INTERVAL = 1
+local MERCHANT_INTERVAL = 300 -- 5 minutes
+
+local FULL_SIZE = UDim2.fromOffset(240, 165)
 local MINI_SIZE = UDim2.fromOffset(240, 45)
+
+local merchantItems = {
+	"WinterEgg",
+	"HeavenEgg",
+	"HellEgg",
+	"MagmaEgg",
+	"Coin",
+	"Luck",
+	"Speed",
+	"Mega"
+}
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "StealEggsGUI"
@@ -23,7 +37,7 @@ gui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
 frame.Size = FULL_SIZE
-frame.Position = UDim2.new(0.5, -120, 0.5, -167)
+frame.Position = UDim2.new(0.5, -120, 0.5, -82)
 frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -68,77 +82,61 @@ close.Parent = frame
 
 Instance.new("UICorner", close).CornerRadius = UDim.new(0, 7)
 
-local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(1, -30, 0, 40)
-toggle.Position = UDim2.fromOffset(15, 55)
-toggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
-toggle.Text = "AUTO REBIRTH: OFF"
-toggle.TextColor3 = Color3.new(1, 1, 1)
-toggle.Font = Enum.Font.GothamBold
-toggle.TextSize = 15
-toggle.Parent = frame
+local rebirthToggle = Instance.new("TextButton")
+rebirthToggle.Size = UDim2.new(1, -30, 0, 40)
+rebirthToggle.Position = UDim2.fromOffset(15, 55)
+rebirthToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
+rebirthToggle.Text = "AUTO REBIRTH: OFF"
+rebirthToggle.TextColor3 = Color3.new(1, 1, 1)
+rebirthToggle.Font = Enum.Font.GothamBold
+rebirthToggle.TextSize = 15
+rebirthToggle.Parent = frame
 
-Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", rebirthToggle).CornerRadius = UDim.new(0, 8)
 
-local merchantFrame = Instance.new("Frame")
-merchantFrame.Size = UDim2.new(1, -30, 0, 220)
-merchantFrame.Position = UDim2.fromOffset(15, 105)
-merchantFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
-merchantFrame.BorderSizePixel = 0
-merchantFrame.Parent = frame
+local merchantToggle = Instance.new("TextButton")
+merchantToggle.Size = UDim2.new(1, -30, 0, 40)
+merchantToggle.Position = UDim2.fromOffset(15, 105)
+merchantToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
+merchantToggle.Text = "AUTO MERCHANT: OFF"
+merchantToggle.TextColor3 = Color3.new(1, 1, 1)
+merchantToggle.Font = Enum.Font.GothamBold
+merchantToggle.TextSize = 15
+merchantToggle.Parent = frame
 
-Instance.new("UICorner", merchantFrame).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", merchantToggle).CornerRadius = UDim.new(0, 8)
 
-local merchantTitle = Instance.new("TextLabel")
-merchantTitle.Size = UDim2.new(1, 0, 0, 28)
-merchantTitle.BackgroundTransparency = 1
-merchantTitle.Text = "MERCHANT"
-merchantTitle.TextColor3 = Color3.new(1, 1, 1)
-merchantTitle.Font = Enum.Font.GothamBold
-merchantTitle.TextSize = 14
-merchantTitle.Parent = merchantFrame
-
-local merchantItems = {
-	"WinterEgg",
-	"HeavenEgg",
-	"HellEgg",
-	"MagmaEgg",
-	"Coin",
-	"Luck",
-	"Speed",
-	"Mega"
-}
-
-for i, itemName in ipairs(merchantItems) do
-	local button = Instance.new("TextButton")
-	button.Size = UDim2.new(1, -16, 0, 21)
-	button.Position = UDim2.fromOffset(8, 28 + ((i - 1) * 23))
-	button.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-	button.Text = itemName
-	button.TextColor3 = Color3.new(1, 1, 1)
-	button.Font = Enum.Font.Gotham
-	button.TextSize = 13
-	button.Parent = merchantFrame
-
-	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
-
-	button.MouseButton1Click:Connect(function()
+local function buyAllMerchant()
+	for _, itemName in ipairs(merchantItems) do
 		merchantEvent:FireServer(itemName)
-	end)
+		task.wait(0.1)
+	end
 end
 
-toggle.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggle.Text = "AUTO REBIRTH: " .. (enabled and "ON" or "OFF")
-	toggle.BackgroundColor3 = enabled
+rebirthToggle.MouseButton1Click:Connect(function()
+	rebirthEnabled = not rebirthEnabled
+	rebirthToggle.Text = "AUTO REBIRTH: " .. (rebirthEnabled and "ON" or "OFF")
+	rebirthToggle.BackgroundColor3 = rebirthEnabled
 		and Color3.fromRGB(45, 150, 75)
 		or Color3.fromRGB(150, 45, 45)
 end)
 
+merchantToggle.MouseButton1Click:Connect(function()
+	merchantEnabled = not merchantEnabled
+	merchantToggle.Text = "AUTO MERCHANT: " .. (merchantEnabled and "ON" or "OFF")
+	merchantToggle.BackgroundColor3 = merchantEnabled
+		and Color3.fromRGB(45, 150, 75)
+		or Color3.fromRGB(150, 45, 45)
+
+	if merchantEnabled then
+		task.spawn(buyAllMerchant) -- buy instantly on enable
+	end
+end)
+
 minimize.MouseButton1Click:Connect(function()
 	minimized = not minimized
-	toggle.Visible = not minimized
-	merchantFrame.Visible = not minimized
+	rebirthToggle.Visible = not minimized
+	merchantToggle.Visible = not minimized
 	frame.Size = minimized and MINI_SIZE or FULL_SIZE
 	minimize.Text = minimized and "+" or "−"
 end)
@@ -146,7 +144,8 @@ end)
 close.MouseButton1Click:Connect(function()
 	if closeArmed then
 		unloaded = true
-		enabled = false
+		rebirthEnabled = false
+		merchantEnabled = false
 		gui:Destroy()
 		return
 	end
@@ -163,11 +162,26 @@ close.MouseButton1Click:Connect(function()
 	end)
 end)
 
+-- Auto Rebirth loop
 task.spawn(function()
 	while not unloaded do
-		if enabled then
+		if rebirthEnabled then
 			rebirthEvent:FireServer(1)
 		end
-		task.wait(interval)
+		task.wait(REBIRTH_INTERVAL)
+	end
+end)
+
+-- Auto Merchant loop (every 5 min)
+task.spawn(function()
+	while not unloaded do
+		local elapsed = 0
+		while elapsed < MERCHANT_INTERVAL and not unloaded do
+			task.wait(1)
+			elapsed += 1
+		end
+		if merchantEnabled and not unloaded then
+			buyAllMerchant()
+		end
 	end
 end)
