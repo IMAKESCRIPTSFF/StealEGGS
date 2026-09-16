@@ -2,9 +2,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
 local rebirthEvent = ReplicatedStorage
 	:WaitForChild("Events")
 	:WaitForChild("Rebirth")
+
 local merchantEvent = ReplicatedStorage:WaitForChild("MerchantPurchase")
 
 local rebirthEnabled = false
@@ -13,8 +16,11 @@ local minimized = false
 local unloaded = false
 local closeArmed = false
 
+local outOfStockConnection = nil
+
 local REBIRTH_INTERVAL = 1
-local MERCHANT_INTERVAL = 300 -- 5 minutes
+local MERCHANT_INTERVAL = 10
+local MERCHANT_ITEM_DELAY = 1
 
 local FULL_SIZE = UDim2.fromOffset(240, 165)
 local MINI_SIZE = UDim2.fromOffset(240, 45)
@@ -30,10 +36,14 @@ local merchantItems = {
 	"Mega"
 }
 
+--------------------------------------------------
+-- GUI
+--------------------------------------------------
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "StealEggsGUI"
 gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+gui.Parent = playerGui
 
 local frame = Instance.new("Frame")
 frame.Size = FULL_SIZE
@@ -106,82 +116,186 @@ merchantToggle.Parent = frame
 
 Instance.new("UICorner", merchantToggle).CornerRadius = UDim.new(0, 8)
 
-local function buyAllMerchant()
-	for _, itemName in ipairs(merchantItems) do
-		merchantEvent:FireServer(itemName)
-		task.wait(0.1)
+--------------------------------------------------
+-- OUT OF STOCK FILTER
+--------------------------------------------------
+
+local function hideOutOfStock(obj)
+	if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+		if obj.Text == "Out of stock!" then
+			obj.Visible = false
+		end
 	end
 end
 
+local function setOutOfStockFilter(enabled)
+
+	if outOfStockConnection then
+		outOfStockConnection:Disconnect()
+		outOfStockConnection = nil
+	end
+
+	if not enabled then
+		return
+	end
+
+	-- Hide messages already on screen
+	for _, obj in ipairs(playerGui:GetDescendants()) do
+		hideOutOfStock(obj)
+	end
+
+	-- Hide newly-created messages
+	outOfStockConnection = playerGui.DescendantAdded:Connect(function(obj)
+		task.defer(function()
+			if merchantEnabled and not unloaded then
+				hideOutOfStock(obj)
+			end
+		end)
+	end)
+end
+
+--------------------------------------------------
+-- MERCHANT
+--------------------------------------------------
+
+local function buyAllMerchant()
+	for _, itemName in ipairs(merchantItems) do
+
+		if not merchantEnabled or unloaded then
+			break
+		end
+
+		merchantEvent:FireServer(itemName)
+
+		-- 1 second between each item
+		task.wait(MERCHANT_ITEM_DELAY)
+	end
+end
+
+--------------------------------------------------
+-- AUTO REBIRTH BUTTON
+--------------------------------------------------
+
 rebirthToggle.MouseButton1Click:Connect(function()
+
 	rebirthEnabled = not rebirthEnabled
-	rebirthToggle.Text = "AUTO REBIRTH: " .. (rebirthEnabled and "ON" or "OFF")
+
+	rebirthToggle.Text =
+		"AUTO REBIRTH: " .. (rebirthEnabled and "ON" or "OFF")
+
 	rebirthToggle.BackgroundColor3 = rebirthEnabled
 		and Color3.fromRGB(45, 150, 75)
 		or Color3.fromRGB(150, 45, 45)
 end)
 
+--------------------------------------------------
+-- AUTO MERCHANT BUTTON
+--------------------------------------------------
+
 merchantToggle.MouseButton1Click:Connect(function()
+
 	merchantEnabled = not merchantEnabled
-	merchantToggle.Text = "AUTO MERCHANT: " .. (merchantEnabled and "ON" or "OFF")
+
+	merchantToggle.Text =
+		"AUTO MERCHANT: " .. (merchantEnabled and "ON" or "OFF")
+
 	merchantToggle.BackgroundColor3 = merchantEnabled
 		and Color3.fromRGB(45, 150, 75)
 		or Color3.fromRGB(150, 45, 45)
 
+	-- Enable/disable Out of stock filter
+	setOutOfStockFilter(merchantEnabled)
+
 	if merchantEnabled then
-		task.spawn(buyAllMerchant) -- buy instantly on enable
+		-- Buy immediately when enabled
+		task.spawn(buyAllMerchant)
 	end
 end)
 
+--------------------------------------------------
+-- MINIMIZE
+--------------------------------------------------
+
 minimize.MouseButton1Click:Connect(function()
+
 	minimized = not minimized
+
 	rebirthToggle.Visible = not minimized
 	merchantToggle.Visible = not minimized
+
 	frame.Size = minimized and MINI_SIZE or FULL_SIZE
+
 	minimize.Text = minimized and "+" or "−"
 end)
 
+--------------------------------------------------
+-- CLOSE
+--------------------------------------------------
+
 close.MouseButton1Click:Connect(function()
+
 	if closeArmed then
+
 		unloaded = true
 		rebirthEnabled = false
 		merchantEnabled = false
+
+		if outOfStockConnection then
+			outOfStockConnection:Disconnect()
+			outOfStockConnection = nil
+		end
+
 		gui:Destroy()
+
 		return
 	end
 
 	closeArmed = true
+
 	close.Text = "?"
 	close.BackgroundColor3 = Color3.fromRGB(220, 120, 35)
 
 	task.delay(2, function()
-		if unloaded then return end
+
+		if unloaded then
+			return
+		end
+
 		closeArmed = false
 		close.Text = "X"
 		close.BackgroundColor3 = Color3.fromRGB(160, 45, 45)
 	end)
 end)
 
--- Auto Rebirth loop
+--------------------------------------------------
+-- AUTO REBIRTH LOOP
+--------------------------------------------------
+
 task.spawn(function()
+
 	while not unloaded do
+
 		if rebirthEnabled then
 			rebirthEvent:FireServer(1)
 		end
+
 		task.wait(REBIRTH_INTERVAL)
 	end
 end)
 
--- Auto Merchant loop (every 5 min)
+--------------------------------------------------
+-- AUTO MERCHANT LOOP
+--------------------------------------------------
+
 task.spawn(function()
+
 	while not unloaded do
-		local elapsed = 0
-		while elapsed < MERCHANT_INTERVAL and not unloaded do
-			task.wait(1)
-			elapsed += 1
-		end
+
+		-- Wait 10 seconds before starting the next cycle
+		task.wait(MERCHANT_INTERVAL)
+
 		if merchantEnabled and not unloaded then
-			buyAllMerchant()
+			task.spawn(buyAllMerchant)
 		end
 	end
 end)
