@@ -1,4 +1,3 @@
-```lua
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -286,7 +285,7 @@ local function walkToEgg(egg)
 		local distance = (root.Position - egg.Position).Magnitude
 
 		-- Reached the egg
-		if distance <= 5 then
+		if distance <= 1 then
 			return true
 		end
 
@@ -565,4 +564,3 @@ end)
 updateButton(rebirthToggle, "AUTO REBIRTH", false)
 updateButton(merchantToggle, "AUTO MERCHANT", false)
 updateButton(movementToggle, "2 MIN WALK", false)
-```
