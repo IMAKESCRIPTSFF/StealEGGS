@@ -31,7 +31,7 @@ local REBIRTH_INTERVAL = 1
 local MERCHANT_INTERVAL = 10
 local MERCHANT_ITEM_DELAY = 1
 
-local TP_INTERVAL = 60
+local TP_INTERVAL = 45
 local TP_POSITION = Vector3.new(3, -19, -712)
 
 local FULL_SIZE = UDim2.fromOffset(240, 210)
