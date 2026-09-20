@@ -1,349 +1,634 @@
-Here is the complete, integrated script. 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
+local UserInputService = game:GetService("UserInputService")
 
-I have applied the "anti-stutter" logic to the waypoints and implemented the coordinate visit system so that it interrupts the egg collection every 60 seconds, waits until the character arrives, and then immediately resumes stealing eggs.
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
-```lua
-local Players = game:GetService("Players") 
-local ReplicatedStorage = game:GetService("ReplicatedStorage") 
-local PathfindingService = game:GetService("PathfindingService") 
-local UserInputService = game:GetService("UserInputService")  
+local rebirthEvent = ReplicatedStorage
+    :WaitForChild("Events")
+    :WaitForChild("Rebirth")
 
-local player = Players.LocalPlayer 
-local playerGui = player:WaitForChild("PlayerGui")  
+local merchantEvent = ReplicatedStorage:WaitForChild("MerchantPurchase")
 
-local rebirthEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Rebirth")  
-local merchantEvent = ReplicatedStorage:WaitForChild("MerchantPurchase") 
+--------------------------------------------------
+-- STATE
+--------------------------------------------------
 
--- State Variables
-local rebirthEnabled = false 
-local merchantEnabled = false 
-local minimized = false 
-local unloaded = false 
-local closeArmed = false 
-local walkingToEgg = false  
+local rebirthEnabled = false
+local merchantEnabled = false
 local movementEnabled = false
-local outOfStockConnection = nil  
+local minimized = false
+local unloaded = false
+local closeArmed = false
 
--- Constants
-local REBIRTH_INTERVAL = 1 
-local MERCHANT_INTERVAL = 10 
-local MERCHANT_ITEM_DELAY = 1  
-local FULL_SIZE = UDim2.fromOffset(240, 210) 
-local MINI_SIZE = UDim2.fromOffset(240, 45)  
-local TARGET_POS = Vector3.new(5, -19, -714)
-local VISIT_INTERVAL = 60
+local walkingToEgg = false
+local outOfStockConnection = nil
 
-local merchantItems = {     
-    "WinterEgg",     
-    "HeavenEgg",     
-    "HellEgg",     
-    "MagmaEgg",     
-    "Coin",     
-    "Luck",     
-    "Speed",     
-    "Mega" 
-}  
+-- Used to invalidate an old path after teleporting
+local walkGeneration = 0
 
--------------------------------------------------- 
--- GUI CONSTRUCTION
---------------------------------------------------  
-local gui = Instance.new("ScreenGui") 
-gui.Name = "StealEggsGUI" 
-gui.ResetOnSpawn = false 
-gui.Parent = playerGui  
+--------------------------------------------------
+-- SETTINGS
+--------------------------------------------------
 
-local frame = Instance.new("Frame") 
-frame.Size = FULL_SIZE 
-frame.Position = UDim2.new(0.5, -120, 0.5, -105) 
-frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24) 
-frame.BorderSizePixel = 0 
-frame.Active = true 
-frame.Draggable = true 
-frame.ClipsDescendants = true 
-frame.Parent = gui  
+local REBIRTH_INTERVAL = 1
 
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)  
+local MERCHANT_INTERVAL = 10
+local MERCHANT_ITEM_DELAY = 1
 
-local title = Instance.new("TextLabel") 
-title.Size = UDim2.new(1, -80, 0, 45) 
-title.Position = UDim2.fromOffset(12, 0) 
-title.BackgroundTransparency = 1 
-title.Text = "STEAL EGGS" 
-title.TextColor3 = Color3.fromRGB(255, 215, 70) 
-title.TextXAlignment = Enum.TextXAlignment.Left 
-title.Font = Enum.Font.GothamBold 
-title.TextSize = 20 
-title.Parent = frame  
+local TP_INTERVAL = 60
+local TP_POSITION = Vector3.new(3, -19, -712)
 
-local minimize = Instance.new("TextButton") 
-minimize.Size = UDim2.fromOffset(30, 30) 
-minimize.Position = UDim2.new(1, -68, 0, 7) 
-minimize.BackgroundColor3 = Color3.fromRGB(55, 55, 65) 
-minimize.Text = "−" 
-minimize.TextColor3 = Color3.new(1, 1, 1) 
-minimize.Font = Enum.Font.GothamBold 
-minimize.TextSize = 20 
-minimize.Parent = frame  
-Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 7)  
+local FULL_SIZE = UDim2.fromOffset(240, 210)
+local MINI_SIZE = UDim2.fromOffset(240, 45)
 
-local close = Instance.new("TextButton") 
-close.Size = UDim2.fromOffset(30, 30) 
-close.Position = UDim2.new(1, -35, 0, 7) 
-close.BackgroundColor3 = Color3.fromRGB(160, 45, 45) 
-close.Text = "X" 
-close.TextColor3 = Color3.new(1, 1, 1)  
-close.Font = Enum.Font.GothamBold 
-close.TextSize = 15 
-close.Parent = frame  
-Instance.new("UICorner", close).CornerRadius = UDim.new(0, 7)  
+local merchantItems = {
+    "WinterEgg",
+    "HeavenEgg",
+    "HellEgg",
+    "MagmaEgg",
+    "Coin",
+    "Luck",
+    "Speed",
+    "Mega"
+}
 
-local rebirthToggle = Instance.new("TextButton") 
-rebirthToggle.Size = UDim2.new(1, -30, 0, 40) 
-rebirthToggle.Position = UDim2.fromOffset(15, 55) 
-rebirthToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45) 
-rebirthToggle.Text = "AUTO REBIRTH: OFF" 
-rebirthToggle.TextColor3 = Color3.new(1, 1, 1) 
-rebirthToggle.Font = Enum.Font.GothamBold 
-rebirthToggle.TextSize = 15 
-rebirthToggle.Parent = frame  
-Instance.new("UICorner", rebirthToggle).CornerRadius = UDim.new(0, 8)  
+--------------------------------------------------
+-- GUI
+--------------------------------------------------
 
-local merchantToggle = Instance.new("TextButton") 
-merchantToggle.Size = UDim2.new(1, -30, 0, 40) 
-merchantToggle.Position = UDim2.fromOffset(15, 105) 
-merchantToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45) 
-merchantToggle.Text = "AUTO MERCHANT: OFF" 
-merchantToggle.TextColor3 = Color3.new(1, 1, 1) 
-merchantToggle.Font = Enum.Font.GothamBold 
-merchantToggle.TextSize = 15 
-merchantToggle.Parent = frame  
-Instance.new("UICorner", merchantToggle).CornerRadius = UDim.new(0, 8)  
+local gui = Instance.new("ScreenGui")
+gui.Name = "StealEggsGUI"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
 
-local movementToggle = Instance.new("TextButton") 
-movementToggle.Size = UDim2.new(1, -30, 0, 40) 
-movementToggle.Position = UDim2.fromOffset(15, 155) 
-movementToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45) 
-movementToggle.Text = "2 MIN WALK: OFF" 
-movementToggle.TextColor3 = Color3.new(1, 1, 1) 
-movementToggle.Font = Enum.Font.GothamBold 
-movementToggle.TextSize = 15 
-movementToggle.Parent = frame  
-Instance.new("UICorner", movementToggle).CornerRadius = UDim.new(0, 8)  
+local frame = Instance.new("Frame")
+frame.Size = FULL_SIZE
+frame.Position = UDim2.new(0.5, -120, 0.5, -105)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.ClipsDescendants = true
+frame.Parent = gui
 
--------------------------------------------------- 
--- UTILITIES & FILTERS
---------------------------------------------------  
-local function hideOutOfStock(obj) 
-    if obj:IsA("TextLabel") or obj:IsA("TextButton") then 
-        if obj.Text == "Out of stock!" then 
-            obj.Visible = false 
-        end 
-    end 
-end  
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
 
-local function setOutOfStockFilter(enabled) 
-    if outOfStockConnection then 
-        outOfStockConnection:Disconnect() 
-        outOfStockConnection = nil 
-    end      
-    if not enabled then return end      
-    for _, obj in ipairs(playerGui:GetDescendants()) do 
-        hideOutOfStock(obj) 
-    end      
-    outOfStockConnection = playerGui.DescendantAdded:Connect(function(obj) 
-        task.defer(function() 
-            if merchantEnabled and not unloaded then 
-                hideOutOfStock(obj) 
-            end 
-        end) 
-    end) 
-end  
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -80, 0, 45)
+title.Position = UDim2.fromOffset(12, 0)
+title.BackgroundTransparency = 1
+title.Text = "STEAL EGGS"
+title.TextColor3 = Color3.fromRGB(255, 215, 70)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.Parent = frame
 
--------------------------------------------------- 
--- MERCHANT LOGIC
---------------------------------------------------  
-local function buyAllMerchant() 
-    for _, itemName in ipairs(merchantItems) do 
-        if not merchantEnabled or unloaded then break end 
-        merchantEvent:FireServer(itemName) 
-        task.wait( MERCHANT_ITEM_DELAY) 
-    end 
-end  
+local minimize = Instance.new("TextButton")
+minimize.Size = UDim2.fromOffset(30, 30)
+minimize.Position = UDim2.new(1, -68, 0, 7)
+minimize.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+minimize.Text = "−"
+minimize.TextColor3 = Color3.new(1, 1, 1)
+minimize.Font = Enum.Font.GothamBold
+minimize.TextSize = 20
+minimize.Parent = frame
 
--------------------------------------------------- 
--- EGG COLLECTION LOGIC
---------------------------------------------------  
-local function getClosestEgg() 
-    local closest = nil 
-    local dist = math.huge 
-    for _, v in ipairs(game:GetService("Workspace"):GetDescendants()) do 
-        if v.Name == "Egg" and v:IsA("BasePart") then 
-            local d = (player.Character.HumanoidRootPart.Position - v.Position).Magnitude 
-            if d < dist then 
-                dist = d 
-                closest = v 
-            end 
-        end 
-    end 
-    return closest 
-end  
+Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 7)
 
-local function walkToClosestEgg()     
-    if walkingToEgg or unloaded or not movementEnabled then return end      
-    local character = player.Character     
-    if not character then return end 
-    local humanoid = character:FindFirstChildOfClass("Humanoid") 
-    local root = character:FindFirstChild("HumanoidRootPart") 
-    if not humanoid or not root then return end 
-    
-    local egg = getClosestEgg()     
-    if not egg then return end      
-    
-    walkingToEgg = true      
-    local path = PathfindingService:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true})      
-    
-    local success = pcall(function() path:ComputeAsync(root.Position, egg.Position) end)      
-    
-    if success and path.Status == Enum.PathStatus.Success then         
-        for _, waypoint in ipairs(path:GetWaypoints()) do             
-            if not movementEnabled or unloaded or not egg.Parent then break end             
-            if waypoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end              
-            humanoid:MoveTo(waypoint.Position) 
-            
-            -- Anti-stutter magnitude check
-            local timeout = 0
-            while (root.Position - waypoint.Position).Magnitude > 2 do
-                task.wait() 
-                timeout += 0.01
-                if timeout > 1 then break end 
-            end
-        end     
-    else         
-        humanoid:MoveTo(egg.Position) 
-    end      
-    walkingToEgg = false 
-end  
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(30, 30)
+close.Position = UDim2.new(1, -35, 0, 7)
+close.BackgroundColor3 = Color3.fromRGB(160, 45, 45)
+close.Text = "X"
+close.TextColor3 = Color3.new(1, 1, 1)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 15
+close.Parent = frame
 
--------------------------------------------------- 
--- COORDINATE VISIT LOGIC
--------------------------------------------------- 
-local lastVisitTime = tick()
+Instance.new("UICorner", close).CornerRadius = UDim.new(0, 7)
 
-local function walkToTargetPosition()
-    local character = player.Character
-    if not character then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not root then return end
+--------------------------------------------------
+-- REBIRTH BUTTON
+--------------------------------------------------
 
-    humanoid:MoveTo(TARGET_POS)
-    
-    -- Blocking wait: Stop everything until we reach the target or timeout
-    local startTime = tick()
-    while (root.Position - TARGET_POS).Magnitude > 3 do
-        task.wait()
-        if tick() - startTime > 15 then break end 
-        if not movementEnabled or unloaded then break end
+local rebirthToggle = Instance.new("TextButton")
+rebirthToggle.Size = UDim2.new(1, -30, 0, 40)
+rebirthToggle.Position = UDim2.fromOffset(15, 55)
+rebirthToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
+rebirthToggle.Text = "AUTO REBIRTH: OFF"
+rebirthToggle.TextColor3 = Color3.new(1, 1, 1)
+rebirthToggle.Font = Enum.Font.GothamBold
+rebirthToggle.TextSize = 15
+rebirthToggle.Parent = frame
+
+Instance.new("UICorner", rebirthToggle).CornerRadius = UDim.new(0, 8)
+
+--------------------------------------------------
+-- MERCHANT BUTTON
+--------------------------------------------------
+
+local merchantToggle = Instance.new("TextButton")
+merchantToggle.Size = UDim2.new(1, -30, 0, 40)
+merchantToggle.Position = UDim2.fromOffset(15, 105)
+merchantToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
+merchantToggle.Text = "AUTO MERCHANT: OFF"
+merchantToggle.TextColor3 = Color3.new(1, 1, 1)
+merchantToggle.Font = Enum.Font.GothamBold
+merchantToggle.TextSize = 15
+merchantToggle.Parent = frame
+
+Instance.new("UICorner", merchantToggle).CornerRadius = UDim.new(0, 8)
+
+--------------------------------------------------
+-- AUTOSTEAL BUTTON
+--------------------------------------------------
+
+local movementToggle = Instance.new("TextButton")
+movementToggle.Size = UDim2.new(1, -30, 0, 40)
+movementToggle.Position = UDim2.fromOffset(15, 155)
+movementToggle.BackgroundColor3 = Color3.fromRGB(150, 45, 45)
+movementToggle.Text = "2 MIN WALK: OFF"
+movementToggle.TextColor3 = Color3.new(1, 1, 1)
+movementToggle.Font = Enum.Font.GothamBold
+movementToggle.TextSize = 15
+movementToggle.Parent = frame
+
+Instance.new("UICorner", movementToggle).CornerRadius = UDim.new(0, 8)
+
+--------------------------------------------------
+-- OUT OF STOCK FILTER
+--------------------------------------------------
+
+local function hideOutOfStock(obj)
+    if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+        if obj.Text == "Out of stock!" then
+            obj.Visible = false
+        end
     end
 end
 
--------------------------------------------------- 
--- MAIN LOOP (CONTINUOUS EGG & VISIT)
---------------------------------------------------  
-task.spawn(function()     
-    while not unloaded do         
-        if movementEnabled then             
-            -- Visit target position every 60 seconds
-            if tick() - lastVisitTime >= VISIT_INTERVAL then
-                walkToTargetPosition()
-                lastVisitTime = tick()
+local function setOutOfStockFilter(enabled)
+
+    if outOfStockConnection then
+        outOfStockConnection:Disconnect()
+        outOfStockConnection = nil
+    end
+
+    if not enabled then
+        return
+    end
+
+    -- Hide existing messages
+    for _, obj in ipairs(playerGui:GetDescendants()) do
+        hideOutOfStock(obj)
+    end
+
+    -- Hide new messages
+    outOfStockConnection = playerGui.DescendantAdded:Connect(function(obj)
+
+        task.defer(function()
+
+            if merchantEnabled and not unloaded then
+                hideOutOfStock(obj)
             end
 
-            local egg = getClosestEgg()                 
-            if  egg then                     
-                walkToClosestEgg()                  
-                -- Wait ONLY until the egg is gone, then immediately loop
-                while movementEnabled and not unloaded and egg.Parent do                     
-                    task.wait() 
-                end                  
+        end)
+
+    end)
+end
+
+--------------------------------------------------
+-- MERCHANT
+--------------------------------------------------
+
+local function buyAllMerchant()
+
+    for _, itemName in ipairs(merchantItems) do
+
+        if not merchantEnabled or unloaded then
+            break
+        end
+
+        merchantEvent:FireServer(itemName)
+
+        task.wait(MERCHANT_ITEM_DELAY)
+    end
+end
+
+--------------------------------------------------
+-- FIND CLOSEST AUTUMN EGG
+--------------------------------------------------
+
+local function getClosestEgg()
+
+    local eggsFolder = workspace:FindFirstChild("MyLocalEggs")
+
+    if not eggsFolder then
+        return nil
+    end
+
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not root then
+        return nil
+    end
+
+    local closestEgg = nil
+    local closestDistance = math.huge
+
+    for _, egg in ipairs(eggsFolder:GetChildren()) do
+
+        if egg:IsA("MeshPart") and egg.Name == "Autumn Egg" then
+
+            local distance =
+                (root.Position - egg.Position).Magnitude
+
+            if distance < closestDistance then
+
+                closestDistance = distance
+                closestEgg = egg
+
+            end
+        end
+    end
+
+    return closestEgg
+end
+
+--------------------------------------------------
+-- WALK TO EGG
+--------------------------------------------------
+
+local function walkToClosestEgg()
+
+    if unloaded or not movementEnabled then
+        return
+    end
+
+    local character = player.Character
+
+    if not character then
+        return
+    end
+
+    local humanoid =
+        character:FindFirstChildOfClass("Humanoid")
+
+    local root =
+        character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root then
+        return
+    end
+
+    local egg = getClosestEgg()
+
+    if not egg then
+        return
+    end
+
+    walkingToEgg = true
+
+    local currentGeneration = walkGeneration
+
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        AgentCanClimb = true,
+        WaypointSpacing = 4
+    })
+
+    local success = pcall(function()
+        path:ComputeAsync(
+            root.Position,
+            egg.Position
+        )
+    end)
+
+    if success and path.Status == Enum.PathStatus.Success then
+
+        for _, waypoint in ipairs(path:GetWaypoints()) do
+
+            if unloaded
+                or not movementEnabled
+                or currentGeneration ~= walkGeneration
+                or not egg.Parent then
+
+                walkingToEgg = false
+                return
+            end
+
+            if waypoint.Action ==
+                Enum.PathWaypointAction.Jump then
+
+                humanoid.Jump = true
+            end
+
+            humanoid:MoveTo(waypoint.Position)
+
+            -- Timeout instead of waiting forever
+            local startTime = os.clock()
+
+            while os.clock() - startTime < 2 do
+
+                if unloaded
+                    or not movementEnabled
+                    or currentGeneration ~= walkGeneration
+                    or not egg.Parent then
+
+                    walkingToEgg = false
+                    return
+                end
+
+                if
+                    (root.Position - waypoint.Position).Magnitude
+                    < 4
+                then
+                    break
+                end
+
+                task.wait(0.05)
+            end
+        end
+
+    else
+
+        if movementEnabled
+            and currentGeneration == walkGeneration then
+
+            humanoid:MoveTo(egg.Position)
+
+        end
+    end
+
+    walkingToEgg = false
+end
+
+--------------------------------------------------
+-- CONTINUOUS AUTOSTEAL LOOP
+--------------------------------------------------
+
+task.spawn(function()
+
+    while not unloaded do
+
+        if movementEnabled and not walkingToEgg then
+
+            local egg = getClosestEgg()
+
+            if egg then
+
+                walkToClosestEgg()
+
+                -- Wait for this egg to disappear
+                while movementEnabled
+                    and not unloaded
+                    and egg.Parent do
+
+                    task.wait(0.1)
+                end
+
             else
-                task.wait(0.1) 
+
+                task.wait(0.25)
+
             end
-        else             
-            task.wait(0.5) 
-        end     
-    end 
+
+        else
+
+            task.wait(0.1)
+
+        end
+    end
 end)
 
--------------------------------------------------- 
--- BUTTON HANDLERS
---------------------------------------------------  
-rebirthToggle.MouseButton1Click:Connect(function()     
-    rebirthEnabled = not rebirthEnabled     
-    rebirthToggle.BackgroundColor3 = rebirthEnabled and Color3.fromRGB(45, 150, 75) or Color3.fromRGB(150, 45, 45) 
-    rebirthToggle.Text = "AUTO REBIRTH: " .. (rebirthEnabled and "ON" or "OFF") 
-end)  
+--------------------------------------------------
+-- AUTO REBIRTH BUTTON
+--------------------------------------------------
 
-merchantToggle.MouseButton1Click:Connect(function()     
-    merchantEnabled = not merchantEnabled     
-    merchantToggle.BackgroundColor3 = merchantEnabled and Color3.fromRGB(45, 150, 75) or Color3.fromRGB(150, 45, 45) 
-    merchantToggle.Text = "AUTO MERCHANT: " .. (merchantEnabled and "ON" or "OFF") 
+rebirthToggle.MouseButton1Click:Connect(function()
+
+    rebirthEnabled = not rebirthEnabled
+
+    rebirthToggle.Text =
+        "AUTO REBIRTH: "
+        .. (rebirthEnabled and "ON" or "OFF")
+
+    rebirthToggle.BackgroundColor3 =
+        rebirthEnabled
+        and Color3.fromRGB(45, 150, 75)
+        or Color3.fromRGB(150, 45, 45)
+
+end)
+
+--------------------------------------------------
+-- AUTO MERCHANT BUTTON
+--------------------------------------------------
+
+merchantToggle.MouseButton1Click:Connect(function()
+
+    merchantEnabled = not merchantEnabled
+
+    merchantToggle.Text =
+        "AUTO MERCHANT: "
+        .. (merchantEnabled and "ON" or "OFF")
+
+    merchantToggle.BackgroundColor3 =
+        merchantEnabled
+        and Color3.fromRGB(45, 150, 75)
+        or Color3.fromRGB(150, 45, 45)
+
     setOutOfStockFilter(merchantEnabled)
-end)  
 
-movementToggle.MouseButton1Click:Connect(function()     
-    movementEnabled = not movementEnabled     
-    movementToggle.Text = "2 MIN WALK: " .. (movementEnabled and "ON" or "OFF")     
-    movementToggle.BackgroundColor3 = movementEnabled and Color3.fromRGB(45, 150, 75) or Color3.fromRGB(150, 45, 45) 
-end)  
-
-minimize.MouseButton1Click:Connect(function()     
-    minimized = not minimized     
-    rebirthToggle.Visible = not minimized     
-    merchantToggle.Visible = not minimized     
-    movementToggle.Visible = not minimized     
-    frame.Size = minimized and MINI_SIZE or FULL_SIZE     
-    minimize.Text = minimized and "+" or "−" 
-end)  
-
-close.MouseButton1Click:Connect(function()     
-    if closeArmed then         
-        unloaded = true         
-        rebirthEnabled = false         
-        merchantEnabled = false         
-        movementEnabled = false         
-        if outOfStockConnection then 
-            outOfStockConnection:Disconnect() 
-            outOfStockConnection = nil 
-        end         
-        gui:Destroy()         
-        return     
-    end     
-    closeArmed = true     
-    close.Text = "?"     
-    close.BackgroundColor3 = Color3.fromRGB(220, 120, 35)     
-    task.delay(2, function()         
-        if unloaded then return end         
-        closeArmed = false         
-        close.Text = "X"         
-        close.BackgroundColor3 = Color3.fromRGB(160, 45, 45)     
-    end) 
-end)  
-
--- Background Loops
-task.spawn(function()     
-    while not unloaded do         
-        if rebirthEnabled then rebirthEvent:FireServer(1) end         
-        task.wait(REBIRTH_INTERVAL)     
-    end 
-end)  
-
-task.spawn(function()     
-    while not unloaded do         
-        task.wait(MERCHANT_INTERVAL)         
-        if merchantEnabled and not unloaded then 
-            task.spawn(buyAllMerchant) 
-        end     
-    end 
+    if merchantEnabled then
+        task.spawn(buyAllMerchant)
+    end
 end)
-```
+
+--------------------------------------------------
+-- AUTOSTEAL TOGGLE
+--------------------------------------------------
+
+movementToggle.MouseButton1Click:Connect(function()
+
+    movementEnabled = not movementEnabled
+
+    movementToggle.Text =
+        "2 MIN WALK: "
+        .. (movementEnabled and "ON" or "OFF")
+
+    movementToggle.BackgroundColor3 =
+        movementEnabled
+        and Color3.fromRGB(45, 150, 75)
+        or Color3.fromRGB(150, 45, 45)
+
+    -- Invalidate any old path when turning AutoSteal off
+    if not movementEnabled then
+        walkGeneration += 1
+        walkingToEgg = false
+    end
+
+end)
+
+--------------------------------------------------
+-- MINIMIZE
+--------------------------------------------------
+
+minimize.MouseButton1Click:Connect(function()
+
+    minimized = not minimized
+
+    rebirthToggle.Visible = not minimized
+    merchantToggle.Visible = not minimized
+    movementToggle.Visible = not minimized
+
+    frame.Size =
+        minimized and MINI_SIZE or FULL_SIZE
+
+    minimize.Text =
+        minimized and "+" or "−"
+
+end)
+
+--------------------------------------------------
+-- CLOSE
+--------------------------------------------------
+
+close.MouseButton1Click:Connect(function()
+
+    if closeArmed then
+
+        unloaded = true
+
+        rebirthEnabled = false
+        merchantEnabled = false
+        movementEnabled = false
+
+        walkGeneration += 1
+        walkingToEgg = false
+
+        if outOfStockConnection then
+
+            outOfStockConnection:Disconnect()
+            outOfStockConnection = nil
+
+        end
+
+        gui:Destroy()
+
+        return
+    end
+
+    closeArmed = true
+
+    close.Text = "?"
+    close.BackgroundColor3 =
+        Color3.fromRGB(220, 120, 35)
+
+    task.delay(2, function()
+
+        if unloaded then
+            return
+        end
+
+        closeArmed = false
+
+        close.Text = "X"
+        close.BackgroundColor3 =
+            Color3.fromRGB(160, 45, 45)
+
+    end)
+
+end)
+
+--------------------------------------------------
+-- AUTO REBIRTH LOOP
+--------------------------------------------------
+
+task.spawn(function()
+
+    while not unloaded do
+
+        if rebirthEnabled then
+            rebirthEvent:FireServer(1)
+        end
+
+        task.wait(REBIRTH_INTERVAL)
+
+    end
+end)
+
+--------------------------------------------------
+-- AUTO MERCHANT LOOP
+--------------------------------------------------
+
+task.spawn(function()
+
+    while not unloaded do
+
+        task.wait(MERCHANT_INTERVAL)
+
+        if merchantEnabled and not unloaded then
+            task.spawn(buyAllMerchant)
+        end
+
+    end
+end)
+
+--------------------------------------------------
+-- TELEPORT EVERY 60 SECONDS
+-- ONLY WHILE AUTOSTEAL IS ON
+--------------------------------------------------
+
+task.spawn(function()
+
+    while not unloaded do
+
+        task.wait(TP_INTERVAL)
+
+        if movementEnabled and not unloaded then
+
+            -- Invalidate the old walking path
+            walkGeneration += 1
+            walkingToEgg = false
+
+            local character = player.Character
+
+            local root =
+                character
+                and character:FindFirstChild("HumanoidRootPart")
+
+            if root then
+
+                -- Teleport
+                root.CFrame =
+                    CFrame.new(TP_POSITION)
+
+                -- Allow position to update
+                task.wait(0.2)
+
+                if movementEnabled and not unloaded then
+
+                    -- Explicitly start searching again
+                    local newEgg = getClosestEgg()
+
+                    if newEgg then
+
+                        task.spawn(function()
+
+                            walkToClosestEgg()
+
+                        end)
+
+                    end
+                end
+            end
+        end
+    end
+end)
