@@ -285,7 +285,7 @@ local function walkToEgg(egg)
 		local distance = (root.Position - egg.Position).Magnitude
 
 		-- Reached the egg
-		if distance <= 1 then
+		if distance <= 5 then
 			return true
 		end
 
