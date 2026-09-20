@@ -1,7 +1,6 @@
+```lua
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local PathfindingService = game:GetService("PathfindingService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -17,6 +16,7 @@ local merchantEvent = ReplicatedStorage
 local rebirthEnabled = false
 local merchantEnabled = false
 local movementEnabled = false
+
 local minimized = false
 local unloaded = false
 local closeArmed = false
@@ -33,6 +33,9 @@ local MERCHANT_ITEM_DELAY = 1
 
 local TP_INTERVAL = 45
 local TP_POSITION = Vector3.new(3, -19, -712)
+
+--// NEW EGG DETECTION
+local AUTUMN_EGG_MESH_ID = "rbxassetid://78754491000008"
 
 local FULL_SIZE = UDim2.fromOffset(240, 210)
 local MINI_SIZE = UDim2.fromOffset(240, 45)
@@ -196,7 +199,7 @@ local function buyAllMerchant()
 	end
 end
 
---// GET CLOSEST AUTUMN EGG
+--// GET CLOSEST AUTUMN EGG BY MESH ID
 local function getClosestEgg()
 	local eggsFolder = workspace:FindFirstChild("MyLocalEggs")
 
@@ -219,8 +222,12 @@ local function getClosestEgg()
 	local closestEgg = nil
 	local closestDistance = math.huge
 
-	for _, egg in ipairs(eggsFolder:GetChildren()) do
-		if egg:IsA("MeshPart") and egg.Name == "Autumn Egg" then
+	-- Search descendants so the egg can be nested inside
+	-- folders/models after the update.
+	for _, egg in ipairs(eggsFolder:GetDescendants()) do
+
+		if egg:IsA("MeshPart") and egg.MeshId == AUTUMN_EGG_MESH_ID then
+
 			local distance = (root.Position - egg.Position).Magnitude
 
 			if distance < closestDistance then
@@ -233,7 +240,7 @@ local function getClosestEgg()
 	return closestEgg
 end
 
---// WALK TO ONE EGG
+--// CONTINUOUS MOVEMENT
 local function walkToEgg(egg)
 	if unloaded or not movementEnabled then
 		return false
@@ -258,101 +265,42 @@ local function walkToEgg(egg)
 
 	local myGeneration = walkGeneration
 
-	local path = PathfindingService:CreatePath({
-		AgentRadius = 2,
-		AgentHeight = 5,
-		AgentCanJump = true,
-		AgentCanClimb = true,
-		WaypointSpacing = 4
-	})
+	while not unloaded and movementEnabled do
 
-	local success = pcall(function()
-		path:ComputeAsync(root.Position, egg.Position)
-	end)
-
-	--// If pathfinding fails, use MoveTo as fallback
-	if not success or path.Status ~= Enum.PathStatus.Success then
-		if unloaded or not movementEnabled or myGeneration ~= walkGeneration then
-			return false
-		end
-
-		humanoid:MoveTo(egg.Position)
-
-		local startTime = os.clock()
-
-		while os.clock() - startTime < 5 do
-			if unloaded or not movementEnabled then
-				return false
-			end
-
-			if myGeneration ~= walkGeneration then
-				return false
-			end
-
-			if not egg.Parent then
-				return false
-			end
-
-			if (root.Position - egg.Position).Magnitude <= 5 then
-				return true
-			end
-
-			task.wait(0.05)
-		end
-
-		return false
-	end
-
-	--// Follow path
-	for _, waypoint in ipairs(path:GetWaypoints()) do
-
-		if unloaded or not movementEnabled then
-			return false
-		end
-
+		-- Movement was cancelled/reset
 		if myGeneration ~= walkGeneration then
 			return false
 		end
 
-		if not egg.Parent then
+		-- Character changed
+		if not player.Character or player.Character ~= character then
 			return false
 		end
 
-		if waypoint.Action == Enum.PathWaypointAction.Jump then
-			humanoid.Jump = true
+		-- Egg disappeared
+		if not egg.Parent then
+			return true
 		end
 
-		humanoid:MoveTo(waypoint.Position)
+		-- Keep checking the current distance
+		local distance = (root.Position - egg.Position).Magnitude
 
-		local startTime = os.clock()
-
-		while os.clock() - startTime < 3 do
-
-			if unloaded or not movementEnabled then
-				return false
-			end
-
-			if myGeneration ~= walkGeneration then
-				return false
-			end
-
-			if not egg.Parent then
-				return false
-			end
-
-			if (root.Position - waypoint.Position).Magnitude <= 4 then
-				break
-			end
-
-			task.wait(0.05)
+		-- Reached the egg
+		if distance <= 5 then
+			return true
 		end
+
+		-- Refresh the movement target continuously.
+		-- This replaces the old single computed path.
+		humanoid:MoveTo(egg.Position)
+
+		task.wait()
 	end
 
-	return true
+	return false
 end
 
 --// AUTO STEAL LOOP
---// THIS NEVER ENDS WHILE AUTO STEAL IS ON
 task.spawn(function()
 
 	while not unloaded do
@@ -364,26 +312,25 @@ task.spawn(function()
 				local egg = getClosestEgg()
 
 				if egg then
+
 					walkingToEgg = true
 
-					--// Walk to the current egg
 					walkToEgg(egg)
 
-					--// IMPORTANT:
-					--// Do NOT wait for the old egg.
-					--// Immediately search for another one.
+					-- Always release the lock so the next
+					-- egg can be searched for.
 					walkingToEgg = false
+
 				else
-					--// No egg currently available
-					task.wait(0.25)
+					task.wait()
 				end
 			end
 
 		else
-			task.wait(0.1)
+			task.wait()
 		end
 
-		task.wait(0.05)
+		task.wait()
 	end
 end)
 
@@ -398,7 +345,7 @@ task.spawn(function()
 			break
 		end
 
-		--// ONLY teleport while AutoSteal is enabled
+		-- Only teleport while Auto Steal is enabled
 		if movementEnabled then
 
 			local character = player.Character
@@ -406,22 +353,18 @@ task.spawn(function()
 
 			if root then
 
-				--// Invalidate whatever path is currently running
+				-- Cancel the current movement operation
 				walkGeneration += 1
-
-				--// Allow the main loop to start again
 				walkingToEgg = false
 
-				--// Deposit
+				-- Deposit
 				root.CFrame = CFrame.new(TP_POSITION)
 
-				--// Give Roblox a moment to update the character
+				-- Give the character a moment to update
 				task.wait(0.25)
 
-				--// IMPORTANT:
-				--// We DO NOT manually start walking here.
-				--// The permanent AutoSteal loop will automatically
-				--// find the closest egg again.
+				-- The permanent Auto Steal loop will
+				-- automatically search for the next egg.
 			end
 		end
 	end
@@ -496,14 +439,17 @@ merchantToggle.MouseButton1Click:Connect(function()
 		merchantEnabled
 	)
 
-	--// Out-of-stock filter ONLY exists while merchant is enabled
+	-- Out-of-stock filter only exists
+	-- while Auto Merchant is enabled.
 	setOutOfStockFilter(merchantEnabled)
 
-	--// Start an immediate purchase cycle
+	-- Start an immediate purchase cycle.
 	if merchantEnabled then
+
 		task.spawn(function()
 			buyAllMerchant()
 		end)
+
 	end
 end)
 
@@ -524,13 +470,13 @@ movementToggle.MouseButton1Click:Connect(function()
 
 	if not movementEnabled then
 
-		--// Cancel current walking operation
+		-- Cancel current movement
 		walkGeneration += 1
 		walkingToEgg = false
 
 	else
 
-		--// Force a fresh search immediately
+		-- Force a completely fresh egg search
 		walkGeneration += 1
 		walkingToEgg = false
 	end
@@ -554,6 +500,7 @@ minimizeButton.MouseButton1Click:Connect(function()
 		movementToggle.Visible = false
 
 		minimizeButton.Text = "+"
+
 	else
 
 		frame.Size = FULL_SIZE
@@ -601,11 +548,11 @@ closeButton.MouseButton1Click:Connect(function()
 	merchantEnabled = false
 	movementEnabled = false
 
-	--// Cancel any current walk
+	-- Cancel current movement
 	walkGeneration += 1
 	walkingToEgg = false
 
-	--// Remove stock filter
+	-- Remove stock filter
 	if outOfStockConnection then
 		outOfStockConnection:Disconnect()
 		outOfStockConnection = nil
@@ -618,3 +565,4 @@ end)
 updateButton(rebirthToggle, "AUTO REBIRTH", false)
 updateButton(merchantToggle, "AUTO MERCHANT", false)
 updateButton(movementToggle, "2 MIN WALK", false)
+```
