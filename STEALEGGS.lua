@@ -40,10 +40,6 @@ local FULL_SIZE = UDim2.fromOffset(240, 210)
 local MINI_SIZE = UDim2.fromOffset(240, 45)
 
 local merchantItems = {
-	"WinterEgg",
-	"HeavenEgg",
-	"HellEgg",
-	"MagmaEgg",
 	"Coin",
 	"Luck",
 	"Speed",
