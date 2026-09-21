@@ -134,7 +134,7 @@ end
 
 local rebirthToggle = createToggle("AUTO REBIRTH", 55)
 local merchantToggle = createToggle("AUTO MERCHANT", 105)
-local movementToggle = createToggle("2 MIN WALK", 155)
+local movementToggle = createToggle("AUTO STEAL", 155)
 
 --// BUTTON STATE
 local function updateButton(button, name, enabled)
@@ -281,7 +281,7 @@ local function walkToEgg(egg)
 		local distance = (root.Position - egg.Position).Magnitude
 
 		-- Reached the egg
-		if distance <= 2 then
+		if distance <= 3 then
 			return true
 		end
 
@@ -559,4 +559,4 @@ end)
 --// INITIAL STATES
 updateButton(rebirthToggle, "AUTO REBIRTH", false)
 updateButton(merchantToggle, "AUTO MERCHANT", false)
-updateButton(movementToggle, "2 MIN WALK", false)
+updateButton(movementToggle, "AUTO STEAL", false)
