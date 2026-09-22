@@ -1,9 +1,8 @@
---// Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TextChatService = game:GetService("TextChatService")
 
---// Player
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -25,6 +24,9 @@ local MERCHANT_INTERVAL = 10
 local MERCHANT_ITEM_DELAY = 1
 local COLLECT_INTERVAL = 0.01
 
+--// Auto Collect teleport position
+local COLLECT_POSITION = Vector3.new(-19, -19, -732)
+
 --// States
 local rebirthEnabled = false
 local merchantEnabled = false
@@ -38,15 +40,16 @@ local merchantItems = {
 	"Mega"
 }
 
---// Remove old GUI if it exists
-local oldGui = playerGui:FindFirstChild("StealEggsGUI")
+--// Remove old GUI
+local oldGui = playerGui:FindFirstChild("StealEggs")
+
 if oldGui then
 	oldGui:Destroy()
 end
 
 --// GUI
 local gui = Instance.new("ScreenGui")
-gui.Name = "StealEggsGUI"
+gui.Name = "StealEggs"
 gui.ResetOnSpawn = false
 gui.Parent = playerGui
 
@@ -107,7 +110,7 @@ local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 7)
 closeCorner.Parent = closeButton
 
---// Button creator
+--// Toggle creator
 local function createToggle(name, text, y)
 	local button = Instance.new("TextButton")
 	button.Name = name
@@ -147,7 +150,7 @@ local collectButton = createToggle(
 	145
 )
 
---// Button state updater
+--// Update button
 local function updateButton(button, text, state)
 	if state then
 		button.Text = text .. ": ON"
@@ -156,6 +159,47 @@ local function updateButton(button, text, state)
 		button.Text = text .. ": OFF"
 		button.BackgroundColor3 = Color3.fromRGB(170, 45, 45)
 	end
+end
+
+--// Get character root
+local function getRoot()
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+--// Teleport + dance
+local function teleportAndDance()
+	local root = getRoot()
+
+	if root then
+		root.CFrame = CFrame.new(COLLECT_POSITION)
+	end
+
+	-- Give the character a moment after teleporting
+	task.wait(0.2)
+
+	--// Send /e dance using Roblox's current TextChatService
+	pcall(function()
+		if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+			local textChannels = TextChatService:FindFirstChild("TextChannels")
+
+			if textChannels then
+				local generalChannel = textChannels:FindFirstChild("RBXGeneral")
+
+				if generalChannel then
+					generalChannel:SendAsync("/e dance")
+				end
+			end
+		else
+			-- Legacy chat fallback
+			player:Chat("/e dance")
+		end
+	end)
 end
 
 --// Auto Rebirth
@@ -207,7 +251,6 @@ task.spawn(function()
 				task.wait(MERCHANT_ITEM_DELAY)
 			end
 
-			-- Wait before starting the next merchant cycle
 			local elapsed = 0
 
 			while merchantEnabled and elapsed < MERCHANT_INTERVAL do
@@ -220,7 +263,7 @@ task.spawn(function()
 	end
 end)
 
---// Auto Collect Local Egg
+--// Auto Collect
 collectButton.MouseButton1Click:Connect(function()
 	collectEnabled = not collectEnabled
 
@@ -229,8 +272,14 @@ collectButton.MouseButton1Click:Connect(function()
 		"Auto Collect Egg",
 		collectEnabled
 	)
+
+	-- Teleport and dance once when enabled
+	if collectEnabled then
+		task.spawn(teleportAndDance)
+	end
 end)
 
+--// Auto Collect loop
 task.spawn(function()
 	while gui.Parent do
 		if collectEnabled then
@@ -240,14 +289,17 @@ task.spawn(function()
 					"Autumn Egg"
 				)
 			end)
-		end
 
-		task.wait(COLLECT_INTERVAL)
+			task.wait(COLLECT_INTERVAL)
+		else
+			task.wait(0.1)
+		end
 	end
 end)
 
 --// Minimize
 local minimized = false
+
 local FULL_SIZE = UDim2.fromOffset(240, 210)
 local MINI_SIZE = UDim2.fromOffset(240, 45)
 
@@ -256,8 +308,6 @@ minimizeButton.MouseButton1Click:Connect(function()
 
 	if minimized then
 		frame.Size = MINI_SIZE
-
-		title.Text = "Automation"
 
 		rebirthButton.Visible = false
 		merchantButton.Visible = false
