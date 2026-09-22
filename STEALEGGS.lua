@@ -32,10 +32,6 @@ local collectEnabled = false
 
 --// Merchant items
 local merchantItems = {
-	"WinterEgg",
-	"HeavenEgg",
-	"HellEgg",
-	"MagmaEgg",
 	"Coin",
 	"Luck",
 	"Speed",
