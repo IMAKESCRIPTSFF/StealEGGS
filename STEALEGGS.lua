@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -180,10 +181,8 @@ local function teleportAndDance()
 		root.CFrame = CFrame.new(COLLECT_POSITION)
 	end
 
-	-- Give the character a moment after teleporting
 	task.wait(0.2)
 
-	--// Send /e dance using Roblox's current TextChatService
 	pcall(function()
 		if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
 			local textChannels = TextChatService:FindFirstChild("TextChannels")
@@ -196,7 +195,6 @@ local function teleportAndDance()
 				end
 			end
 		else
-			-- Legacy chat fallback
 			player:Chat("/e dance")
 		end
 	end)
@@ -273,7 +271,6 @@ collectButton.MouseButton1Click:Connect(function()
 		collectEnabled
 	)
 
-	-- Teleport and dance once when enabled
 	if collectEnabled then
 		task.spawn(teleportAndDance)
 	end
@@ -283,10 +280,20 @@ end)
 task.spawn(function()
 	while gui.Parent do
 		if collectEnabled then
+
+			-- Zone 10
 			pcall(function()
 				collectEggEvent:FireServer(
 					"Zone10",
 					"Autumn Egg"
+				)
+			end)
+
+			-- Zone 11 / Atlantis
+			pcall(function()
+				collectEggEvent:FireServer(
+					"Zone11",
+					"Atlantis Egg"
 				)
 			end)
 
